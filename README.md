@@ -5,6 +5,14 @@
 [![GitHub stars](https://img.shields.io/github/stars/TonyJiangWJ/mimotion?style=flat-square)](https://github.com/TonyJiangWJ/mimotion/stargazers)
 [![GitHub issues](https://img.shields.io/github/issues/TonyJiangWJ/mimotion?style=flat-square)](https://github.com/TonyJiangWJ/mimotion/issues)
 
+## 本分支：每日 70000～80000 步固定目标
+
+- 每个账号按**北京时间日期**生成一个 `MIN_STEP`～`MAX_STEP` 的随机目标；当天第一次成功执行就提交完整目标，同一天重复执行和重试使用相同值。
+- 在 [Actions Variables](../../settings/variables/actions) 设置 `MIN_STEP=70000`、`MAX_STEP=80000`。优先级为：Variables 对应环境变量 → `CONFIG` 中的字段 → 默认 `70000` / `80000`。
+- 默认每天北京时间 **08:17、11:17、14:17、17:17、20:17、23:17** 执行。单次工作流最多尝试 3 次，失败会将 Actions 标记为失败；并发运行会排队。
+- 延迟到凌晨执行时，提交实际北京时间当天的完整目标。目标日期和上传日期使用同一个值，避免请求跨午夜写错日期。
+- GitHub 定时任务可能延迟或漏触发。当天至少需要一次接口成功提交；整天没有运行时，GitHub Actions 无法保证当天结果，也不会把次日执行当作昨日补刷。需要更强的时间保障时，应使用独立服务器定时器。
+
 ## 小米运动自动刷步数（支持邮箱登录）
 
 - 小米运动自动刷步数，小米运动APP现已改名 `Zepp Life`，为方便说明，后面还是称其为小米运动。但下载注册时请搜索 `Zepp Life`。
@@ -58,15 +66,15 @@
 快捷跳转地址 [https://github.com/${你的github用户名}/mimotion/settings/secrets/actions](../../settings/secrets/actions)
 - 点击右侧的 `New repository secret` 即可添加Secret
 
-#### 添加名为 **PAT** 的Secret变量，值为第一步申请的token
+#### 手动使用 Random Cron 时添加名为 **PAT** 的Secret变量
 
-- `PAT` 的作用是拿来更新随机执行时间以及加密token数据的，为了保证正常使用，一定要配置正确。
+- 日常 `刷步数` 工作流使用 GitHub 自动提供的 `GITHUB_TOKEN` 和 `contents: write` 权限保存加密 token。手动调用 `Random Cron` 修改工作流文件时才使用 `PAT`。
 
 #### 添加名为 **AES_KEY** 的Secret变量，请自行创建一个长度为16个字符的字符串作为密钥
 
 - 注意：密钥不要用中文，长度一定要是16个字符，否则可能出错。
 - 如果你有多个账号，或者希望程序自动保存登录信息，就需要设置这个 `AES_KEY`。设置之后，程序会用这个密钥把各个账号的登录token信息加密保存起来。**请一定保管好你的密钥，不要泄露。**
-- 同时，请确保你已经正确配置了 PAT 密钥，否则程序无法自动保存和提交信息到仓库。
+- `刷步数` 工作流已配置 `contents: write`，用于自动保存和提交加密信息。
 - 第一次配置 `AES_KEY` 后，运行时可能会看到提示：“密钥不正确或者加密内容损坏 放弃token”，**这是正常现象**。因为原来加密文件用的是我的密钥，和你设置的不同，所以会提示不匹配。你直接忽略它，等程序运行完后，就会用你的新密钥生成一份新的加密文件，下次运行就正常了。
 - 配置 `AES_KEY` 后，每个人的仓库里面到会保存一份 `encrypted_tokens.data`。每次更新代码时，这个文件会被覆盖。**为了避免丢失你保存的信息，请在更新代码前备份这个文件**，等代码更新完，再把它放回仓库并提交，最后重新运行workflow。
 
@@ -79,8 +87,8 @@
   {
     "USER": "abcxxx@xx.com",
     "PWD": "password",
-    "MIN_STEP": "18000",
-    "MAX_STEP": "25000",
+    "MIN_STEP": "70000",
+    "MAX_STEP": "80000",
     "PUSH_PLUS_TOKEN": "",
     "PUSH_PLUS_HOUR": "",
     "PUSH_PLUS_MAX": "30",
@@ -96,8 +104,8 @@
   |-------------------------|----------------------------------------------------------------------------------------------------------------|
   | USER                    | 小米运动登录账号，仅支持小米运动账号对应的手机号或邮箱，不支持小米账号                                                                            |
   | PWD                     | 小米运动登录密码，仅支持小米运动账号对应的密码                                                                                        |
-  | MIN_STEP                | 最小步数                                                                                                           |
-  | MAX_STEP                | 最大步数，最大步数和最小步数随机范围随着时间线性增加，北京时间22点达到最大值                                                                        |
+  | MIN_STEP                | 每日目标下限，默认 70000；Actions Variable 同名值优先                                                                    |
+  | MAX_STEP                | 每日目标上限，默认 80000；全天使用完整范围，同账号同一天目标固定，Actions Variable 同名值优先                                  |
   | PUSH_PLUS_TOKEN         | 推送加的个人token,申请地址[pushplus](https://www.pushplus.plus/push1.html)，工作流执行完成后推送每个账号的执行状态信息，如没有则不要填写                |
   | PUSH_PLUS_HOUR          | 限制只在某个整点进行pushplus的推送，值为整数，比如设置21，则只在北京时间21点XX分执行时才进行pushplus的消息推送。如不设置或值非数字则每次执行后都会进行推送                       |
   | PUSH_WECHAT_WEBHOOK_KEY | 企业微信推送通知的key，企业微信webhook机器人推送全地址为：https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key={机器人的key}，这里配置{机器人的key} |
@@ -118,8 +126,8 @@
 {
   "USER": "13800138000#13800138001",
   "PWD": "abc123qwe#abcqwe2",
-  "MIN_STEP": "18000",
-  "MAX_STEP": "25000",
+  "MIN_STEP": "70000",
+  "MAX_STEP": "80000",
   "PUSH_PLUS_TOKEN": "",
   "PUSH_PLUS_HOUR": ""
 }
@@ -129,32 +137,16 @@
 
 ### 四、自定义启动时间
 
-#### 两种方式自定义启动时间
+编辑 **`.github/workflows/run.yml`** 中的 cron。GitHub Actions 使用 UTC，即北京时间减 8 小时；格式为 `分 小时 日 月 星期`。
 
-##### 1、添加名为 `CRON_HOURS` 的Variables变量 `Settings-->Secrets and variables-->Actions-->New repository variables` 注意不是Secret
+```yaml
+on:
+  schedule:
+    # 北京时间 08:17、11:17、14:17、17:17、20:17、23:17
+    - cron: '17 0,3,6,9,12,15 * * *'
+```
 
--
-快捷跳转地址 [https://github.com/${你的github用户名}/mimotion/settings/variables/actions](../../settings/variables/actions)
-    - 填写自动执行的时间，单位为小时，此处需要设置UTC时间，例如设置 `0,2,4,6,8,14` 则会在北京时间 `8,10,12,14,16,22` 点触发执行
-- 添加完成后可以在Actions中手动触发：`Random Cron` 来触发替换，或者等下一次定时执行时它将会自动替换。
-
-##### 2、编辑 **.github/workflows/run.yml** 中的cron表达式
-
-- cron表达式格式如下: `分 小时 日期 月份 年份`
-- github actions中执行时间为UTC时间，即**北京时间-8**，如果需要每天`8，10，12，14，16，22`
-  点执行，则设置cron为`0 0,2,4,6,8,14 * * *`
-
-  ```yaml
-  on:
-    schedule:
-      - cron: '0 0,2,4,6,8,14 * * *'
-  ```
-
-- **注意** 如果已添加 `CRON_HOURS` 变量，则修改此文件的cron表达式会失效，在下次执行 `Random Cron`
-  后表达式中小时的部分会被覆盖为 `CRON_HOURS` 配置的值
-
-- 注意以上两种方式二选一即可，推荐直接使用方式1，变量值填写的是逗号分隔的数字，别乱填别的报错别找我！
-- github actions 0点为执行高峰，排队可能会延后一两小时才执行，建议直接从2开始
+`Random Cron` 已改为仅手动触发。若手动运行它，会随机修改分钟，并应用可选的 `CRON_HOURS` Variable（UTC 小时，以逗号分隔）。日常调度以 `run.yml` 中的固定表达式为准。
 
 ### 五、手动触发测试工作流
 
@@ -194,10 +186,7 @@
 
 ## 注意事项
 
-1. 默认每天运行6+次，由run.yml中的cron控制，分钟为随机值，执行后自动更新分钟值，随机后可能当前整点二次执行，例如：8:
-   05分执行后，分钟值随机为50，则会在8:50再次执行。
-
-- 如果配置了 `CRON_HOURS` Variable变量，则脚本将自动判断，例如8:05分执行后，将从小时中剔除8，即8:00-8:59都不会再重复执行，避免随机的步数混乱。
+1. 默认每天安排 6 次固定时间执行；同账号同一天始终提交同一目标总数，多次运行不会累加步数。
 
 2. 多账户的数量和密码请一定要对上 不然无法使用!!!
 
@@ -211,8 +200,7 @@
 
 7. 请注意，账号不是 [小米账号]，而是 [小米运动/ZeppLife] 的账号。
 
-8. 最大步数和最小步数随着时间增长，10点执行时范围为10/22 \* 18000 ~ 10/22 \* 25000：8181 ~
-   11363，以此类推，在北京时间22点达到最大值，即22点执行时随机步数的范围为18000-25000之间。要修改这个范围可以修改CONFIG中的MIN_STEP和MAX_STEP。
+8. 每次执行使用完整的 `MIN_STEP`～`MAX_STEP` 范围，包括凌晨。修改 Actions Variables 中的同名值即可调整范围；未设置 Variable 时读取 `CONFIG`。
 
 9. cron的执行根据github actions的资源进行排队，并不是百分百按指定的时间进行运行，请知悉。
 
@@ -227,7 +215,7 @@
     - 执行步骤中主要关注 `开始` ，点击 `开始` 展开详情
     - 展开后便可以查看到执行日志，如果执行成功，则会显示每个账号当前随机的步数是多少
     - 如果执行失败，则需要根据实际情况分析具体失败原因
-- 对于随机Cron的工作流 `Random Cron`，它会在 `刷步数` 执行成功后触发，执行后会更新cron表达式创建随机的分钟值，然后提交到git仓库。这一步失败的主要原因有：
+- 手动运行 `Random Cron` 后，它会更新 cron 的分钟值并提交到仓库。这一步失败的主要原因有：
     - `PAT` Secret变量，也就是个人token设置的不正确
     - `CRON_HOURS` Variable变量设置的不正确，需要逗号分隔的小时字符串例如：`1,3,4,5,6,7` 。不要添加奇奇怪怪的东西
     - 其他请见执行日志
@@ -276,4 +264,9 @@ pip install -r requirements.txt
 执行脚本修改步数
 ```shell
 python3 main.py
+```
+
+运行回归检查（使用模拟接口，不会提交真实步数）：
+```shell
+python3 -m unittest discover -s tests -v
 ```

@@ -1,18 +1,14 @@
 name: Random Cron
 on:
-  workflow_run:
-    workflows: ["刷步数"]
-    types:
-      - completed
+  # 日常使用 run.yml 的固定多时段调度；随机 cron 仅在手动调用时修改。
   workflow_dispatch:
 
 jobs:
   repo-sync:
     runs-on: ubuntu-latest
     timeout-minutes: 3
-    if: github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch'
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v5
         with:
           token: ${{ secrets.PAT }} #此处PAT需要申请，教程详见：README
       - name: random cron

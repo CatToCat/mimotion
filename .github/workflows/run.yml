@@ -2,40 +2,72 @@ name: 刷步数
 
 on:
   schedule:
-    - cron: '10 10,12 * * *'
+    # 北京时间 08:17、11:17、14:17、17:17、20:17、23:17，多次提交同一日目标。
+    - cron: '17 0,3,6,9,12,15 * * *'
   workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: mimotion-daily-steps
+  cancel-in-progress: false
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 15
     steps:
       - name: Checkout codes
         uses: actions/checkout@v5
         with:
-          token: ${{ secrets.PAT }} #此处PAT需要申请，教程详见：README
-      - name: Update system and install zsh
-        run: |
-          sudo -E apt-get -qq update
-          sudo -E apt-get install zsh -y
-          
+          ref: master
+          fetch-depth: 0
+
       - name: 初始化Python
         uses: actions/setup-python@v6
         with:
           python-version: "3.10"
-          
-      - name: 开始
-        env:
-            CONFIG: ${{ secrets.CONFIG }}
-            AES_KEY: ${{ secrets.AES_KEY }}
+          cache: pip
+
+      - name: 安装依赖并检查每日目标逻辑
         run: |
           pip3 install -r requirements.txt
-          python3 main.py
+          python3 -m unittest discover -s tests -v
+
+      - name: 开始
+        id: run
+        env:
+          CONFIG: ${{ secrets.CONFIG }}
+          AES_KEY: ${{ secrets.AES_KEY }}
+          MIN_STEP: ${{ vars.MIN_STEP }}
+          MAX_STEP: ${{ vars.MAX_STEP }}
+        run: |
+          for attempt in 1 2 3; do
+            echo "执行尝试 ${attempt}/3"
+            if python3 main.py; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              sleep 30
+            fi
+          done
+          echo "::error::三次尝试后仍有账号提交失败"
+          exit 1
 
       - name: persist tokens
+        if: ${{ !cancelled() && steps.run.outcome != 'skipped' }}
         run: |
           git config user.name github-actions
           git config user.email github-actions@users.noreply.github.com
-          git add .
+          if [ ! -f encrypted_tokens.data ]; then
+            exit 0
+          fi
+          git add encrypted_tokens.data
+          if git diff --cached --quiet; then
+            echo "Token 缓存没有变化"
+            exit 0
+          fi
           git commit -m "persist tokens trigger by ${{ github.event_name }}"
-          git push origin master
+          git pull --rebase origin master
+          git push origin HEAD:master

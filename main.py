@@ -1,4 +1,5 @@
 # -*- coding: utf8 -*-
+import hashlib
 import math
 import traceback
 from datetime import datetime
@@ -27,16 +28,20 @@ def get_int_value_default(_config: dict, _key, default):
     return int(_config.get(_key))
 
 
-# 获取当前时间对应的最大和最小步数
-def get_min_max_by_time(hour=None, minute=None):
-    if hour is None:
-        hour = time_bj.hour
-    if minute is None:
-        minute = time_bj.minute
-    time_rate = min((hour * 60 + minute) / (22 * 60), 1)
-    min_step = get_int_value_default(config, 'MIN_STEP', 18000)
-    max_step = get_int_value_default(config, 'MAX_STEP', 25000)
-    return int(time_rate * min_step), int(time_rate * max_step)
+# 环境变量（Actions Variables）优先于 CONFIG，全天使用完整目标范围
+def get_step_range(_config):
+    min_step = int(os.environ.get('MIN_STEP') or _config.get('MIN_STEP', 70000))
+    max_step = int(os.environ.get('MAX_STEP') or _config.get('MAX_STEP', 80000))
+    if not 0 < min_step <= max_step:
+        raise ValueError('步数范围必须满足 0 < MIN_STEP <= MAX_STEP')
+    return min_step, max_step
+
+
+def get_daily_step(user, target_date, min_step, max_step):
+    # 同账号、同一天重试得到相同目标，跨进程也不依赖随机数种子或缓存。
+    seed = f'{user}:{target_date}'.encode('utf-8')
+    value = int.from_bytes(hashlib.sha256(seed).digest(), 'big')
+    return min_step + value % (max_step - min_step + 1)
 
 
 # 虚拟ip地址
@@ -188,9 +193,6 @@ class MiMotionRunner:
         if app_token is None:
             return "登陆失败！", False
 
-        step = str(random.randint(min_step, max_step))
-        self.log_str += f"已设置为随机步数范围({min_step}~{max_step}) 随机值:{step}\n"
-        
         user_token_info = user_tokens.get(self.user, {})
         bound_device_id = user_token_info.get("bound_device_id")
         if not bound_device_id and self.user_id:
@@ -200,8 +202,12 @@ class MiMotionRunner:
                 user_tokens[self.user] = user_token_info
                 self.log_str += f"查找到已绑定设备ID: {bound_device_id}\n"
 
-        ok, msg = zeppHelper.post_fake_brand_data(step, app_token, self.user_id, device_id=bound_device_id)
-        return f"修改步数（{step}）[" + msg + "]", ok
+        target_date = get_beijing_time().date().isoformat()
+        step = str(get_daily_step(self.user, target_date, min_step, max_step))
+        self.log_str += f"每日固定目标 日期:{target_date} 范围({min_step}~{max_step}) 步数:{step}\n"
+        ok, msg = zeppHelper.post_fake_brand_data(
+            step, app_token, self.user_id, device_id=bound_device_id, target_date=target_date)
+        return f"修改步数（{step}）[{msg}] 日期:{target_date}", ok
 
 
 def run_single_account(total, idx, user_mi, passwd_mi):
@@ -254,6 +260,7 @@ def execute():
         summary = f"\n执行账号总数{total}，成功：{success_count}，失败：{total - success_count}"
         print(summary)
         push_util.push_results(push_results, summary, push_config)
+        return success_count == total
     else:
         print(f"账号数长度[{len(user_list)}]和密码数长度[{len(passwd_list)}]不匹配，跳过执行")
         exit(1)
@@ -286,8 +293,6 @@ def persist_user_tokens():
 
 
 if __name__ == "__main__":
-    # 北京时间
-    time_bj = get_beijing_time()
     encrypt_support = False
     user_tokens = dict()
     if os.environ.__contains__("AES_KEY") is True:
@@ -312,8 +317,8 @@ if __name__ == "__main__":
         config = {
             "USER": os.environ.get("USER"),
             "PWD": os.environ.get("PWD"),
-            "MIN_STEP": os.environ.get("MIN_STEP", "18000"),
-            "MAX_STEP": os.environ.get("MAX_STEP", "25000"),
+            "MIN_STEP": os.environ.get("MIN_STEP", "70000"),
+            "MAX_STEP": os.environ.get("MAX_STEP", "80000"),
             "PUSH_PLUS_TOKEN": os.environ.get("PUSH_PLUS_TOKEN", ""),
             "PUSH_PLUS_HOUR": os.environ.get("PUSH_PLUS_HOUR", ""),
             "PUSH_PLUS_MAX": os.environ.get("PUSH_PLUS_MAX", "30"),
@@ -346,7 +351,8 @@ if __name__ == "__main__":
     if users is None or passwords is None:
         print("未正确配置账号密码，无法执行")
         exit(1)
-    min_step, max_step = get_min_max_by_time()
+    min_step, max_step = get_step_range(config)
+    print(f"每日目标范围：{min_step}~{max_step}（北京时间，同账号同一天目标固定）")
     use_concurrent = config.get('USE_CONCURRENT')
     if use_concurrent is not None and use_concurrent == 'True':
         use_concurrent = True
@@ -354,4 +360,5 @@ if __name__ == "__main__":
         print(f"多账号执行间隔：{sleep_seconds}")
         use_concurrent = False
     # endregion
-    execute()
+    if not execute():
+        exit(1)
